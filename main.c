@@ -214,6 +214,33 @@ void lectura(char MEM[], int *TAM, char DirArchivo[])
         printf("No se pudo abrir el archivo\n");
 }
 
+void codigosDis(int inst, char MEM[], int REG[], TRTDS TDS[])
+{
+    int op1=0,op2=0,i,IP;
+
+    op1=(inst>>6);
+    op1=(~op1)&0x03;
+    op2=inst>>4;
+    op2=(~op2)&0x03;
+    IP=REG[5]-1;
+    i=0;
+    printf("[%04d] ",IP);
+    while(i<op1){
+        printf("%02x ",(MEM[IP])&0xFF);
+        IP++;
+        i++;
+    }
+    i=0;
+    while(i<=op2){
+        printf("%02X ",(MEM[IP])&0xFF);
+        IP++;
+        i++;
+    }
+    for(i=0;i<(20-op1*3-op2*3);i++)
+        printf(" ");
+    printf("|     ");
+}
+
 void codigos(int inst, int *codop, int V[], char MEM[], int REG[], TRTDS TDS[])
 {
     char registro, segmento;
@@ -1468,10 +1495,12 @@ void procesoDatos(char MEM[], int REG[], TRTDS TDS[], t_func funciones[], t_dis 
         }
         inst = MEM[REG[5]++];
         V[9] = inst&0xFF;
+        codigosDis(V[9],MEM,REG,TDS);
         codigos(V[9], &codop, V, MEM, REG, TDS);
+
         if( (codop < 0) || (codop > 12 && codop < 48) || (codop > 59 && codop < 240) || (codop > 240))
         {
-            printf("Instruccion invalida dis");
+            printf("Instruccion invalida");
             exit(1);
         }
         disassembler[codop](V, REG, TDS, registro);
@@ -1491,7 +1520,7 @@ void procesoDatos(char MEM[], int REG[], TRTDS TDS[], t_func funciones[], t_dis 
         codigos(V[9], &codop, V, MEM, REG, TDS);
         if( (codop < 0) || (codop > 12 && codop < 48) || (codop > 59 && codop < 240) || (codop > 240))
         {
-            printf("Instruccion invalida eje");
+            printf("Instruccion invalida");
             exit(1);
         }
         funciones[codop](V, MEM, REG, TDS);
