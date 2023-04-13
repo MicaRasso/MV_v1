@@ -125,16 +125,22 @@ void lee1byte(char *var, char MEM[], int REG[], TRTDS TDS[])
     *var = aux;
 }
 
-void leedemem(int *var, char MEM[], short int posmem)
+void leedemem(int *var, char MEM[], short int posmem, TRTDS TDS[])
 {
     int i, j = 3, aux2 = 0, aux = 0;
 
     for(i = 0 ; i < 4 ; i++)
     {
-        aux = MEM[posmem+j--];
-        aux = aux<<(8*i);
-        mascaras(&aux, i);
-        aux2 |= aux;
+        if(posmem+j > TDS[1].size){
+            printf("Fallo de segmento\n");
+            exit(1);
+        }
+        else{
+            aux = MEM[posmem+j--];
+            aux = aux<<(8*i);
+            mascaras(&aux, i);
+            aux2 |= aux;
+        }
     }
     *var = aux2;
 }
@@ -231,7 +237,7 @@ void codigos(int inst, int *codop, int V[], char MEM[], int REG[], TRTDS TDS[])
             case 0: // op1 es memoria
                 leemem(&posmem, MEM, REG, TDS);
                 V[1+i] = posmem;
-                leedemem(&valor, MEM, posmem);
+                leedemem(&valor, MEM, posmem,TDS);
                 V[3+i] = valor;
             break;
             case 1:
