@@ -176,7 +176,7 @@ void leereg(char *registro, char *segmento, char MEM[], int REG[], TRTDS TDS[])
     *segmento = (aux>>4)&0x03;
 }
 
-void lectura(char MEM[], int *TAM, char DirArchivo[])
+void lectura(char MEM[], int *TAM, char DirArchivo[], char infoMV[])
 {
     FILE *arch;
     char encabezado[6], version, c;
@@ -187,28 +187,27 @@ void lectura(char MEM[], int *TAM, char DirArchivo[])
     {
         fread(encabezado, sizeof(char), 5, arch);
         encabezado[5] = '\0';
-        printf("%s ", encabezado);
 
         fread(&version, sizeof(char), 1, arch);
-        printf("Ver: %d ", version);
 
-        /*tomo los caracteres uno a uno y los opero bit a bit para pasarlos a (int)tamaño*/
         *TAM=0x00;
         fread(&c,sizeof(char),1,arch);
         *TAM = c;
         *TAM = (*TAM<<0X8);
         fread(&c,sizeof(char),1,arch);
         *TAM |= c;
-        printf("TAM: %d\n",*TAM);
 
         for (i=0 ; i < *TAM ; i++)
         {
-            //printf("posicion: %d, tamanio: %d    memoria: ",i,*TAM);
             fread(&c,sizeof(char),1,arch);
             MEM[i] = c;
-            //printf("%d  %c\n", MEM[i], MEM[i]);
         }
         fclose(arch);
+
+        strcpy(infoMV,encabezado);
+        infoMV[5]=' ';
+        version+=48;
+        infoMV[6]=version;
     }
     else
         printf("No se pudo abrir el archivo\n");
@@ -1480,12 +1479,14 @@ void cargaMatriz(texto registro[16][4])
     strcpy(registro[15][3],"fx");
 }
 
-void procesoDatos(char MEM[], int REG[], TRTDS TDS[], t_func funciones[], t_dis disassembler[], int ejecutar)
+void procesoDatos(char MEM[], int REG[], TRTDS TDS[], t_func funciones[], t_dis disassembler[], int ejecutar, char infoVM[])
 {
     char inst;
     int codop = 0, V[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
     texto registro[16][4];
     cargaMatriz (registro);
+    if(ejecutar)
+        printf("%s TAM: %d\n",infoVM,baseds(TDS,REG));
     while(ejecutar == 1 && codop != 240)
     {
         if(REG[5] > baseds(TDS, REG))
@@ -1525,7 +1526,6 @@ void procesoDatos(char MEM[], int REG[], TRTDS TDS[], t_func funciones[], t_dis 
         }
         funciones[codop](V, MEM, REG, TDS);
     }
-    scanf("");
 }
 
 void cargaFuncionesDis (t_dis funciones[])
@@ -1590,7 +1590,7 @@ int main(int argc, char *argv[])
 {
     int TAM, RAM = 16384, REG[16];
     //( 0 = CS / 1 = DS / 5 = IP / 8 = CC / 9 = AC )
-    char MEM[RAM], DirArchivo[120];
+    char MEM[RAM], DirArchivo[120],infoMV[10];
     TRTDS TDS[8];
 
     t_dis disassembler[256];
@@ -1603,14 +1603,14 @@ int main(int argc, char *argv[])
     //inicializacion de variables y carga de memoria
     strcpy(DirArchivo, argv[1]);
 
-    lectura(MEM, &TAM, DirArchivo);
+    lectura(MEM, &TAM, DirArchivo,infoMV);
     iniciaTablaDeSegmentos(TDS, RAM, TAM);
     iniciaRegistros(REG);
 
     if( (argc == 3) && strcmp(argv[2], "-d") == 0 )
-        procesoDatos(MEM, REG, TDS, funciones, disassembler , 1);
+        procesoDatos(MEM, REG, TDS, funciones, disassembler , 1,infoMV);
     else
-        procesoDatos(MEM, REG, TDS, funciones, disassembler, 0);
+        procesoDatos(MEM, REG, TDS, funciones, disassembler, 0, infoMV);
 
     return 0;
 }
