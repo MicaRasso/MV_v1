@@ -9,7 +9,7 @@ typedef struct
     short int base, size;
 } TRTDS;
 
-typedef char texto[4];
+typedef char texto[5];
 
 typedef void (*t_dis) (int V[], int REG[], TRTDS TDS[], texto registro[16][4]);
 
@@ -78,8 +78,7 @@ void mascaras(int *valor, char tipo)
 
 void lee4byte(int *var, char MEM[], int REG[], TRTDS TDS[])
 {
-    int i , j, aux = 0;
-    j = 4;
+    int i , aux = 0;
     for(i = 3 ; i >= 0 ; i--)
     {
         if(REG[5] > baseds(TDS, REG))
@@ -88,7 +87,7 @@ void lee4byte(int *var, char MEM[], int REG[], TRTDS TDS[])
             exit(1);
         }
         aux = MEM[REG[5]++];
-        aux |= aux<<8*j--;
+        aux |= aux<<8*i;
         mascaras(&aux, i);
     }
     *var = aux;
@@ -96,8 +95,8 @@ void lee4byte(int *var, char MEM[], int REG[], TRTDS TDS[])
 
 void lee2byte(short int *var, char MEM[], int REG[], TRTDS TDS[])
 {
-    int i , j, aux = 0;
-    j = 2;
+    int i, aux = 0;
+    *var = 0;
     for(i = 1 ; i >= 0 ; i--)
     {
         if(REG[5] > baseds(TDS, REG))
@@ -106,10 +105,9 @@ void lee2byte(short int *var, char MEM[], int REG[], TRTDS TDS[])
             exit(1);
         }
         aux = MEM[REG[5]++];
-        aux |= aux<<8*j--;
-        mascaras(&aux, i);
+        mascaras(&aux, 0);
+        *var |= aux<<8*i;
     }
-    *var = aux;
 }
 
 void lee1byte(char *var, char MEM[], int REG[], TRTDS TDS[])
@@ -181,7 +179,7 @@ void lectura(char MEM[], int *TAM, char DirArchivo[], char infoMV[])
     FILE *arch;
     char encabezado[6], version, c;
     arch = fopen(DirArchivo, "rb");
-    int i;
+    int i, aux = 0;
 
     if(arch != NULL)
     {
@@ -190,12 +188,18 @@ void lectura(char MEM[], int *TAM, char DirArchivo[], char infoMV[])
 
         fread(&version, sizeof(char), 1, arch);
 
-        *TAM=0x00;
-        fread(&c,sizeof(char),1,arch);
-        *TAM = c;
-        *TAM = (*TAM<<0X8);
-        fread(&c,sizeof(char),1,arch);
-        *TAM |= c;
+        *TAM = 0;
+
+        fread(&c, sizeof(char), 1, arch);
+        aux = c;
+        mascaras(&aux, 0);
+        aux = (aux<<8);
+        *TAM |= aux;
+
+        fread(&c, sizeof(char), 1, arch);
+        aux = c;
+        mascaras(&aux, 0);
+        *TAM |= aux;
 
         for (i=0 ; i < *TAM ; i++)
         {
@@ -206,9 +210,9 @@ void lectura(char MEM[], int *TAM, char DirArchivo[], char infoMV[])
 
         strcpy(infoMV,encabezado);
         strcat(infoMV," VER: ");
-        //infoMV[11]=' ';
-        version+=48;
-        infoMV[11]=version;
+        version += 48;
+        infoMV[11] = version;
+        infoMV[12] = '\0';
     }
     else
         printf("No se pudo abrir el archivo\n");
@@ -216,27 +220,29 @@ void lectura(char MEM[], int *TAM, char DirArchivo[], char infoMV[])
 
 void codigosDis(int inst, char MEM[], int REG[], TRTDS TDS[])
 {
-    int op1=0,op2=0,i,IP;
+    int op1 = 0, op2 = 0, i, IP;
 
-    op1=(inst>>6);
-    op1=(~op1)&0x03;
-    op2=inst>>4;
-    op2=(~op2)&0x03;
-    IP=REG[5]-1;
-    i=0;
+    op1 = (inst>>6);
+    op1 = (~op1)&0x03;
+    op2 = inst>>4;
+    op2 = (~op2)&0x03;
+    IP = REG[5]-1;
+    i = 0;
     printf("[%04d] ",IP);
-    while(i<op1){
+    while(i < op1)
+    {
         printf("%02x ",(MEM[IP])&0xFF);
         IP++;
         i++;
     }
-    i=0;
-    while(i<=op2){
+    i = 0;
+    while(i <= op2)
+    {
         printf("%02X ",(MEM[IP])&0xFF);
         IP++;
         i++;
     }
-    for(i=0;i<(20-op1*3-op2*3);i++)
+    for(i = 0 ; i < (20-op1*3-op2*3) ; i++)
         printf(" ");
     printf("|     ");
 }
@@ -274,22 +280,33 @@ void codigos(int inst, int *codop, int V[], char MEM[], int REG[], TRTDS TDS[])
             break;
             case 2: // op1 es registro
                 leereg(&registro, &segmento, MEM, REG, TDS);
-                V[1+i] = registro;
-                V[2+i] = segmento;
-                switch (V[2+i])
+                if (registro == 1)
                 {
-                    case 0:
-                        V[3+i] = REG[V[1+i]];
-                    break;
-                    case 1:
-                        V[3+i] = corrimiento(REG[V[1+i]], 24, 24);
-                    break;
-                    case 2:
-                        V[3+i] = corrimiento(REG[V[1+i]], 16, 24);
-                    break;
-                    case 3:
-                        V[3+i] = corrimiento(REG[V[1+i]], 16, 16);
-                    break;
+                    V[1+i] = baseds(TDS, REG);
+                    V[2+i] = 0;
+                    leedemem(&valor, MEM, V[1+i], TDS);
+                    V[1+i] = 1;
+                    V[3+i] = valor;
+                }
+                else
+                {
+                    V[1+i] = registro;
+                    V[2+i] = segmento;
+                    switch (V[2+i])
+                    {
+                        case 0:
+                            V[3+i] = REG[V[1+i]];
+                        break;
+                        case 1:
+                            V[3+i] = corrimiento(REG[V[1+i]], 24, 24);
+                        break;
+                        case 2:
+                            V[3+i] = corrimiento(REG[V[1+i]], 16, 24);
+                        break;
+                        case 3:
+                            V[3+i] = corrimiento(REG[V[1+i]], 16, 16);
+                        break;
+                    }
                 }
             break;
         }
@@ -297,361 +314,15 @@ void codigos(int inst, int *codop, int V[], char MEM[], int REG[], TRTDS TDS[])
     }
 }
 
-void disMOV(int V[], int REG[], TRTDS TDS[], texto registro[16][4])
+void setCC(int V[], char MEM[], int REG[], TRTDS TDS[])
 {
-    if(V[0] == 0)
-        if(V[4] == 0) //memoria a memoria
-            printf("MOV  [%d], [%d] \n",V[1]-baseds(TDS,REG), V[5]-baseds(TDS,REG));
-        else
-            if(V[4] == 1) // inmediato a memoria
-                printf("MOV  [%d], %d \n",V[1]-baseds(TDS,REG), V[7]);
-            else // registro a memoria
-                printf("MOV  [%d], %s \n",V[1]-baseds(TDS,REG), registro[V[5]][V[6]]);
+    if(V[3] > 0)
+        REG[8] = 0;
     else
-        if(V[4] == 0) //memoria a registro
-            printf("MOV  %s, [%d] \n", registro[V[1]][V[2]], V[5]-baseds(TDS,REG));
-        else
-            if(V[4] == 1) // inmediato a registro
-                printf("MOV  %s, %d \n", registro[V[1]][V[2]], V[7]);
-            else // registro a registro
-                printf("MOV  %s, %d \n", registro[V[1]][V[2]], V[5]);
-}
-
-void disADD(int V[], int REG[],  TRTDS TDS[], texto registro[16][4])
-{
-    if(V[0] == 0)
-        if(V[4] == 0) //memoria a memoria
-            printf("ADD  [%d], [%d] \n",V[1]-baseds(TDS,REG), V[5]-baseds(TDS,REG));
-        else
-            if(V[4] == 1) // inmediato a memoria
-                printf("ADD  [%d], %d \n",V[1]-baseds(TDS,REG), V[7]);
-            else // registro a memoria
-                printf("ADD  [%d], %s \n",V[1]-baseds(TDS,REG), registro[V[5]][V[6]]);
-    else
-        if(V[4] == 0) //memoria a registro
-            printf("ADD  %s, [%d] \n", registro[V[1]][V[2]], V[5]-baseds(TDS,REG));
-        else
-            if(V[4] == 1) // inmediato a registro
-                printf("ADD  %s, %d \n", registro[V[1]][V[2]], V[7]);
-            else // registro a registro
-                printf("ADD  %s, %d \n", registro[V[1]][V[2]], V[5]);
-}
-
-void disSUB(int V[], int REG[], TRTDS TDS[], texto registro[16][4])
-{
-    if(V[0] == 0)
-        if(V[4] == 0) //memoria a memoria
-            printf("SUB  [%d], [%d] \n",V[1]-baseds(TDS,REG), V[5]-baseds(TDS,REG));
-        else
-            if(V[4] == 1) // inmediato a memoria
-                printf("SUB  [%d], %d \n",V[1]-baseds(TDS,REG), V[7]);
-            else // registro a memoria
-                printf("SUB  [%d], %s \n",V[1]-baseds(TDS,REG), registro[V[5]][V[6]]);
-    else
-        if(V[4] == 0) //memoria a registro
-            printf("SUB  %s, [%d] \n", registro[V[1]][V[2]], V[5]-baseds(TDS,REG));
-        else
-            if(V[4] == 1) // inmediato a registro
-                printf("SUB  %s, %d \n", registro[V[1]][V[2]], V[7]);
-            else // registro a registro
-                printf("SUB  %s, %d \n", registro[V[1]][V[2]], V[5]);
-}
-
-void disSWAP(int V[], int REG[], TRTDS TDS[], texto registro[16][4])
-{
-    if(V[0] == 0)
-        if(V[4] == 0) //memoria a memoria
-            printf("SWAP [%d], [%d] \n",V[1]-baseds(TDS,REG), V[5]-baseds(TDS,REG));
-        else // registro a memoria
-            printf("SWAP [%d], %s \n",V[1]-baseds(TDS,REG), registro[V[5]][V[6]]);
-    else
-        if(V[4] == 0) //memoria a registro
-            printf("SWAP %s, [%d] \n", registro[V[1]][V[2]], V[5]-baseds(TDS,REG));
-        else// registro a registro
-            printf("SWAP %s, %d \n", registro[V[1]][V[2]], V[5]);
-}
-
-void disMUL(int V[], int REG[], TRTDS TDS[], texto registro[16][4])
-{
-    if(V[0] == 0)
-        if(V[4] == 0) //memoria a memoria
-            printf("MUL  [%d], [%d] \n",V[1]-baseds(TDS,REG), V[5]-baseds(TDS,REG));
-        else
-            if(V[4] == 1) // inmediato a memoria
-                printf("MUL  [%d], %d \n",V[1]-baseds(TDS,REG), V[7]);
-            else // registro a memoria
-                printf("MUL  [%d], %s \n",V[1]-baseds(TDS,REG), registro[V[5]][V[6]]);
-    else
-        if(V[4] == 0) //memoria a registro
-            printf("MUL  %s, [%d] \n", registro[V[1]][V[2]], V[5]-baseds(TDS,REG));
-        else
-            if(V[4] == 1) // inmediato a registro
-                printf("MUL  %s, %d \n", registro[V[1]][V[2]], V[7]);
-            else // registro a registro
-                printf("MUL  %s, %d \n", registro[V[1]][V[2]], V[5]);
-}
-
-void disDIV(int V[], int REG[], TRTDS TDS[], texto registro[16][4])
-{
-    if(V[0] == 0)
-        if(V[4] == 0) //memoria a memoria
-            printf("DIV  [%d], [%d] \n",V[1]-baseds(TDS,REG), V[5]-baseds(TDS,REG));
-        else
-            if(V[4] == 1) // inmediato a memoria
-                printf("DIV  [%d], %d \n",V[1]-baseds(TDS,REG), V[7]);
-            else // registro a memoria
-                printf("DIV  [%d], %s \n",V[1]-baseds(TDS,REG), registro[V[5]][V[6]]);
-    else
-        if(V[4] == 0) //memoria a registro
-            printf("DIV  %s, [%d] \n", registro[V[1]][V[2]], V[5]-baseds(TDS,REG));
-        else
-            if(V[4] == 1) // inmediato a registro
-                printf("DIV  %s, %d \n", registro[V[1]][V[2]], V[7]);
-            else // registro a registro
-                printf("DIV  %s, %d \n", registro[V[1]][V[2]], V[5]);
-}
-
-void disCMP(int V[], int REG[], TRTDS TDS[], texto registro[16][4])
-{
-    if(V[0] == 0)
-        if(V[4] == 0) //memoria - memoria
-            printf("CMP  [%d], [%d] \n",V[1]-baseds(TDS,REG), V[5]-baseds(TDS,REG));
-        else
-            if(V[4] == 1) // inmediato - memoria
-                printf("CMP  [%d], %d \n",V[1]-baseds(TDS,REG), V[7]);
-            else // registro - memoria
-                printf("CMP  [%d], %s \n",V[1]-baseds(TDS,REG), registro[V[5]][V[6]]);
-    else
-        if(V[0] == 1)
-            if(V[4] == 0) //memoria - inmediato
-                printf("CMP  [%d], [%d] \n",V[4], V[5]-baseds(TDS,REG));
-            else
-                if(V[4] == 1) // inmediato - inmediato
-                    printf("CMP  [%d], %d \n",V[4], V[7]);
-                else // registro - inmediato
-                    printf("CMP  [%d], %s \n",V[4], registro[V[5]][V[6]]);
-        else
-            if(V[4] == 0) //memoria - registro
-                printf("CMP  %s, [%d] \n", registro[V[1]][V[2]], V[5]-baseds(TDS,REG));
-            else
-                if(V[4] == 1) // inmediato - registro
-                    printf("CMP  %s, %d \n", registro[V[1]][V[2]], V[7]);
-                else // registro - registro
-                    printf("CMP  %s, %d \n", registro[V[1]][V[2]], V[5]);
-}
-
-void disSHL(int V[], int REG[], TRTDS TDS[], texto registro[16][4])
-{
-    if(V[0] == 0)
-        if(V[4] == 0) //memoria a memoria
-            printf("SHL  [%d], [%d] \n",V[1]-baseds(TDS,REG), V[5]-baseds(TDS,REG));
-        else
-            if(V[4] == 1) // inmediato a memoria
-                printf("SHL  [%d], %d \n",V[1]-baseds(TDS,REG), V[7]);
-            else // registro a memoria
-                printf("SHL  [%d], %s \n",V[1]-baseds(TDS,REG), registro[V[5]][V[6]]);
-    else
-        if(V[4] == 0) //memoria a registro
-            printf("SHL  %s, [%d] \n", registro[V[1]][V[2]], V[5]-baseds(TDS,REG));
-        else
-            if(V[4] == 1) // inmediato a registro
-                printf("SHL  %s, %d \n", registro[V[1]][V[2]], V[7]);
-            else // registro a registro
-                printf("SHL  %s, %d \n", registro[V[1]][V[2]], V[5]);
-}
-
-void disSHR(int V[], int REG[], TRTDS TDS[], texto registro[16][4])
-{
-    if(V[0] == 0)
-        if(V[4] == 0) //memoria a memoria
-            printf("SHR  [%d], [%d] \n",V[1]-baseds(TDS,REG), V[5]-baseds(TDS,REG));
-        else
-            if(V[4] == 1) // inmediato a memoria
-                printf("SHR  [%d], %d \n",V[1]-baseds(TDS,REG), V[7]);
-            else // registro a memoria
-                printf("SHR  [%d], %s \n",V[1]-baseds(TDS,REG), registro[V[5]][V[6]]);
-    else
-        if(V[4] == 0) //memoria a registro
-            printf("SHR  %s, [%d] \n", registro[V[1]][V[2]], V[5]-baseds(TDS,REG));
-        else
-            if(V[4] == 1) // inmediato a registro
-                printf("SHR  %s, %d \n", registro[V[1]][V[2]], V[7]);
-            else // registro a registro
-                printf("SHR  %s, %d \n", registro[V[1]][V[2]], V[5]);
-}
-
-void disAND(int V[], int REG[], TRTDS TDS[], texto registro[16][4])
-{
-    if(V[0] == 0)
-        if(V[4] == 0) //memoria a memoria
-            printf("AND  [%d], [%d] \n",V[1]-baseds(TDS,REG), V[5]-baseds(TDS,REG));
-        else
-            if(V[4] == 1) // inmediato a memoria
-                printf("AND  [%d], %d \n",V[1]-baseds(TDS,REG), V[7]);
-            else // registro a memoria
-                printf("AND  [%d], %s \n",V[1]-baseds(TDS,REG), registro[V[5]][V[6]]);
-    else
-        if(V[4] == 0) //memoria a registro
-            printf("AND  %s, [%d] \n", registro[V[1]][V[2]], V[5]-baseds(TDS,REG));
-        else
-            if(V[4] == 1) // inmediato a registro
-                printf("AND  %s, %d \n", registro[V[1]][V[2]], V[7]);
-            else // registro a registro
-                printf("AND  %s, %d \n", registro[V[1]][V[2]], V[5]);
-
-}
-
-void disOR(int V[], int REG[], TRTDS TDS[], texto registro[16][4])
-{
-    if(V[0] == 0)
-        if(V[4] == 0) //memoria a memoria
-            printf("OR   [%d], [%d] \n",V[1]-baseds(TDS,REG), V[5]-baseds(TDS,REG));
-        else
-            if(V[4] == 1) // inmediato a memoria
-                printf("OR   [%d], %d \n",V[1]-baseds(TDS,REG), V[7]);
-            else // registro a memoria
-                printf("OR   [%d], %s \n",V[1]-baseds(TDS,REG), registro[V[5]][V[6]]);
-    else
-        if(V[4] == 0) //memoria a registro
-            printf("OR   %s, [%d] \n", registro[V[1]][V[2]], V[5]-baseds(TDS,REG));
-        else
-            if(V[4] == 1) // inmediato a registro
-                printf("OR   %s, %d \n", registro[V[1]][V[2]], V[7]);
-            else // registro a registro
-                printf("OR   %s, %d \n", registro[V[1]][V[2]], V[5]);
-}
-
-void disXOR(int V[], int REG[], TRTDS TDS[], texto registro[16][4])
-{
-    if(V[0] == 0)
-        if(V[4] == 0) //memoria a memoria
-            printf("XOR  [%d], [%d] \n",V[1]-baseds(TDS,REG), V[5]-baseds(TDS,REG));
-        else
-            if(V[4] == 1) // inmediato a memoria
-                printf("XOR  [%d], %d \n",V[1]-baseds(TDS,REG), V[7]);
-            else // registro a memoria
-                printf("XOR  [%d], %s \n",V[1]-baseds(TDS,REG), registro[V[5]][V[6]]);
-    else
-        if(V[4] == 0) //memoria a registro
-            printf("XOR  %s, [%d] \n", registro[V[1]][V[2]], V[5]-baseds(TDS,REG));
-        else
-            if(V[4] == 1) // inmediato a registro
-                printf("XOR  %s, %d \n", registro[V[1]][V[2]], V[7]);
-            else // registro a registro
-                printf("XOR  %s, %d \n", registro[V[1]][V[2]], V[5]);
-}
-
-void disSYS(int V[], int REG[], TRTDS TDS[], texto registro[16][4])
-{
-    printf("SYS  %d\n",V[3]);
-}
-
-void disJMP(int V[], int REG[], TRTDS TDS[], texto registro[16][4])
-{
-    if(V[0] == 0) // memoria
-        printf("JMP  [%d]\n",V[1]-baseds(TDS,REG));
-    else
-        if(V[0] == 1) // inmediato
-            printf("JMP  %d\n", V[3]);
-        else // registro
-            printf("JMP  %s\n",registro[V[1]][V[2]]);
-}
-
-void disJZ(int V[], int REG[], TRTDS TDS[], texto registro[16][4])
-{
-    if(V[0] == 0) // memoria
-        printf("JZ   [%d]\n",V[1]-baseds(TDS,REG));
-    else
-        if(V[0] == 1) // inmediato
-            printf("JZ   %d\n", V[3]);
-        else // registro
-            printf("JZ   %s\n",registro[V[1]][V[2]]);
-}
-
-void disJP(int V[], int REG[], TRTDS TDS[], texto registro[16][4])
-{
-    if(V[0] == 0) // memoria
-        printf("JP   [%d]\n",V[1]-baseds(TDS,REG));
-    else
-        if(V[0] == 1) // inmediato
-            printf("JP   %d\n", V[3]);
-        else // registro
-            printf("JP   %s\n",registro[V[1]][V[2]]);
-}
-
-void disJN(int V[], int REG[], TRTDS TDS[], texto registro[16][4])
-{
-    if(V[0] == 0) // memoria
-        printf("JN   [%d]\n",V[1]-baseds(TDS,REG));
-    else
-        if(V[0] == 1) // inmediato
-            printf("JN   %d\n", V[3]);
-        else // registro
-            printf("JN   %s\n",registro[V[1]][V[2]]);
-}
-
-void disJNZ(int V[], int REG[], TRTDS TDS[], texto registro[16][4])
-{
-    if(V[0] == 0) // memoria
-        printf("JNZ  [%d]\n",V[1]-baseds(TDS,REG));
-    else
-        if(V[0] == 1) // inmediato
-            printf("JNZ  %d\n", V[3]);
-        else // registro
-            printf("JNZ  %s\n",registro[V[1]][V[2]]);
-}
-
-void disJNP(int V[], int REG[], TRTDS TDS[], texto registro[16][4])
-{
-    if(V[0] == 0) // memoria
-        printf("JNP  [%d]\n",V[1]-baseds(TDS,REG));
-    else
-        if(V[0] == 1) // inmediato
-            printf("JNP  %d\n", V[3]);
-        else // registro
-            printf("JNP  %s\n",registro[V[1]][V[2]]);
-}
-
-void disJNN(int V[], int REG[], TRTDS TDS[], texto registro[16][4])
-{
-    if(V[0] == 0) // memoria
-        printf("JNN  [%d]\n",V[1]-baseds(TDS,REG));
-    else
-        if(V[0] == 1) // inmediato
-            printf("JNN  %d\n", V[3]);
-        else // registro
-            printf("JNN  %s\n",registro[V[1]][V[2]]);
-}
-
-void disLDL(int V[], int REG[], TRTDS TDS[], texto registro[16][4])
-{
-    printf("LDL  %d\n", V[3]);// inmediato
-}
-
-void disLDH(int V[], int REG[], TRTDS TDS[], texto registro[16][4])
-{
-    printf("LDH  %d\n", V[3]);// inmediato
-}
-
-void disRND(int V[], int REG[], TRTDS TDS[], texto registro[16][4])
-{
-    printf("RND  %d\n", V[3]);// inmediato
-}
-
-void disNOT(int V[], int REG[], TRTDS TDS[], texto registro[16][4])
-{
-        if(V[0] == 0) // memoria
-        printf("NOT  [%d]\n",V[1]-baseds(TDS,REG));
-    else
-        if(V[0] == 1) // inmediato
-            printf("NOT  %d\n", V[3]);
-        else // registro
-            printf("NOT  %s\n",registro[V[1]][V[2]]);
-}
-
-void disSTOP(int V[], int REG[], TRTDS TDS[], texto registro[16][4])
-{
-    printf("STOP\n\n");
+        if(V[3] < 0)
+            REG[8] = 0x80000000;
+        else //V[3] == 0
+            REG[8] = 0x40000000;
 }
 
 void MOV(int V[], char MEM[], int REG[], TRTDS TDS[])
@@ -746,13 +417,7 @@ void ADD(int V[], char MEM[], int REG[], TRTDS TDS[])
         }
     }
 
-    if(V[3] > 0)
-        REG[8] = 0;
-    else
-        if(V[3] < 0)
-            REG[8] = 0x80000000;
-        else //valor1 == 0
-            REG[8] = 0x40000000;
+    setCC(V, MEM, REG, TDS);
 }
 
 void SUB(int V[], char MEM[], int REG[], TRTDS TDS[])
@@ -783,13 +448,7 @@ void SUB(int V[], char MEM[], int REG[], TRTDS TDS[])
         }
     }
 
-    if( V[3] > 0)
-        REG[8] = 0;
-    else
-        if( V[3] < 0)
-            REG[8] = 0x80000000;
-        else //V[3] == 0
-            REG[8] = 0x40000000;
+    setCC(V, MEM, REG, TDS);
 }
 
 void SWAP(int V[], char MEM[], int REG[], TRTDS TDS[])
@@ -965,13 +624,7 @@ void MUL(int V[], char MEM[], int REG[], TRTDS TDS[])
         }
     }
 
-    if(V[3] > 0)
-        REG[8] = 0;
-    else
-        if(V[3] < 0)
-            REG[8] = 0x80000000;
-        else //V[3] == 0
-            REG[8] = 0x40000000;
+    setCC(V, MEM, REG, TDS);
 }
 
 void DIV(int V[], char MEM[], int REG[], TRTDS TDS[])
@@ -1012,25 +665,13 @@ void DIV(int V[], char MEM[], int REG[], TRTDS TDS[])
         }
     }
 
-    if(V[3] > 0)
-        REG[8] = 0;
-    else
-        if(V[3] < 0)
-            REG[8] = 0x80000000;
-        else //V[3] == 0
-            REG[8] = 0x40000000;
+    setCC(V, MEM, REG, TDS);
 }
 
 void CMP(int V[], char MEM[], int REG[], TRTDS TDS[])
 {
     V[3] -= V[7];
-    if(V[3] > 0)
-        REG[8] = 0;
-    else
-        if(V[3] < 0)
-            REG[8] = 0x80000000;
-        else //V[3] == 0
-            REG[8] = 0x40000000;
+    setCC(V, MEM, REG, TDS);
 }
 
 void SHL(int V[], char MEM[], int REG[], TRTDS TDS[])
@@ -1061,13 +702,7 @@ void SHL(int V[], char MEM[], int REG[], TRTDS TDS[])
         }
     }
 
-    if(V[3] > 0)
-        REG[8] = 0;
-    else
-        if(V[3] < 0)
-            REG[8] = 0x80000000;
-        else //V[3] == 0
-            REG[8] = 0x40000000;
+    setCC(V, MEM, REG, TDS);
 }
 
 void SHR(int V[], char MEM[], int REG[], TRTDS TDS[])
@@ -1098,13 +733,7 @@ void SHR(int V[], char MEM[], int REG[], TRTDS TDS[])
         }
     }
 
-    if(V[3] > 0)
-        REG[8] = 0;
-    else
-        if(V[3] < 0)
-            REG[8] = 0x80000000;
-        else //V[3] == 0
-            REG[8] = 0x40000000;
+    setCC(V, MEM, REG, TDS);
 }
 
 void AND(int V[], char MEM[], int REG[], TRTDS TDS[])
@@ -1134,6 +763,8 @@ void AND(int V[], char MEM[], int REG[], TRTDS TDS[])
                 REG[V[1]] &= V[7];
         }
     }
+
+    setCC(V, MEM, REG, TDS);
 }
 
 void OR(int V[], char MEM[], int REG[], TRTDS TDS[])
@@ -1164,13 +795,7 @@ void OR(int V[], char MEM[], int REG[], TRTDS TDS[])
         }
     }
 
-    if(V[3] > 0)
-        REG[8] = 0;
-    else
-        if(V[3] < 0)
-            REG[8] = 0x80000000;
-        else //V[3] == 0
-            REG[8] = 0x40000000;
+    setCC(V, MEM, REG, TDS);
 }
 
 void XOR(int V[], char MEM[], int REG[], TRTDS TDS[])
@@ -1200,6 +825,8 @@ void XOR(int V[], char MEM[], int REG[], TRTDS TDS[])
                 REG[V[1]] ^= V[7];
         }
     }
+
+    setCC(V, MEM, REG, TDS);
 }
 
 void SYS(int V[], char MEM[], int REG[], TRTDS TDS[])
@@ -1228,7 +855,7 @@ void SYS(int V[], char MEM[], int REG[], TRTDS TDS[])
                             MEM[posmem+j] = aux;
                             aux = aux>>8;
                         }
-                        posmem += 4;
+                        posmem += ch;
                     }
                 break;
                 case 2: // caracteres
@@ -1241,7 +868,7 @@ void SYS(int V[], char MEM[], int REG[], TRTDS TDS[])
                             MEM[posmem+j] = aux;
                             aux = aux>>8;
                         }
-                        posmem += 4;
+                        posmem += ch;
                     }
                 break;
                 case 4: // octal
@@ -1254,7 +881,7 @@ void SYS(int V[], char MEM[], int REG[], TRTDS TDS[])
                             MEM[posmem+j] = aux;
                             aux = aux>>8;
                         }
-                        posmem += 4;
+                        posmem += ch;
                     }
                 break;
                 case 8: // hexadecimal
@@ -1267,7 +894,7 @@ void SYS(int V[], char MEM[], int REG[], TRTDS TDS[])
                             MEM[posmem+j] = aux;
                             aux = aux>>8;
                         }
-                        posmem += 4;
+                        posmem += ch;
                     }
                 break;
             }
@@ -1284,8 +911,8 @@ void SYS(int V[], char MEM[], int REG[], TRTDS TDS[])
                             mascaras(&aux2, 0);
                             aux |= aux2<<8*(ch-j-1);
                         }
-                        posmem += 4;
-                        printf("%d\n", aux);
+                        printf("[%04d]: %d\n", posmem-baseds(TDS, REG), aux);
+                        posmem += ch;
                     }
                 break;
                 case 2: // caracteres
@@ -1297,8 +924,8 @@ void SYS(int V[], char MEM[], int REG[], TRTDS TDS[])
                             mascaras(&aux2, 0);
                             aux |= aux2<<8*(ch-j-1);
                         }
-                        posmem += 4;
-                        printf("%c\n", aux);
+                        printf("[%04d]: %c\n", posmem-baseds(TDS, REG), aux);
+                        posmem += ch;
                     }
                 break;
                 case 4: // octal
@@ -1310,8 +937,8 @@ void SYS(int V[], char MEM[], int REG[], TRTDS TDS[])
                             mascaras(&aux2, 0);
                             aux |= aux2<<8*(ch-j-1);
                         }
-                        posmem += 4;
-                        printf("%o\n", aux);
+                        printf("[%04d]: %o\n", posmem-baseds(TDS, REG), aux);
+                        posmem += ch;
                     }
                 break;
                 case 8: // hexadecimal
@@ -1323,8 +950,8 @@ void SYS(int V[], char MEM[], int REG[], TRTDS TDS[])
                             mascaras(&aux2, 0);
                             aux |= aux2<<8*(ch-j-1);
                         }
-                        posmem += 4;
-                        printf("%x\n", aux);
+                        printf("[%04d]: %x\n", posmem-baseds(TDS, REG), aux);
+                        posmem += ch;
                     }
                 break;
             }
@@ -1438,13 +1065,7 @@ void NOT(int V[], char MEM[], int REG[], TRTDS TDS[])
         V[3] = REG[V[1]];
     }
 
-    if(V[3] > 0)
-        REG[8] = 0;
-    else
-        if(V[3] < 0)
-            REG[8] = 0x80000000;
-        else //V[3] == 0
-            REG[8] = 0x40000000;
+    setCC(V, MEM, REG, TDS);
 }
 
 void STOP(int V[], char MEM[], int REG[], TRTDS TDS[])
@@ -1454,6 +1075,11 @@ void STOP(int V[], char MEM[], int REG[], TRTDS TDS[])
 
 void cargaMatriz(texto registro[16][4])
 {
+    strcpy(registro[0][0],"cs");
+    strcpy(registro[1][0],"ds");
+    strcpy(registro[5][0],"ip");
+    strcpy(registro[8][0],"cc");
+    strcpy(registro[9][0],"ac");
     strcpy(registro[10][0],"eax");
     strcpy(registro[10][1],"al");
     strcpy(registro[10][2],"ah");
@@ -1480,21 +1106,94 @@ void cargaMatriz(texto registro[16][4])
     strcpy(registro[15][3],"fx");
 }
 
-void procesoDatos(char MEM[], int REG[], TRTDS TDS[], t_func funciones[], t_dis disassembler[], int ejecutar, char infoVM[])
+void dis0(texto nombre)
+{
+    printf("%s\n", nombre);
+}
+
+void dis1(texto nombre, int V[], int REG[], TRTDS TDS[], texto registro[16][4])
+{
+    if(V[0] == 0) // memoria
+        printf("%s  [%d]\n", nombre, V[1]-baseds(TDS,REG));
+    else
+        if(V[0] == 1) // inmediato
+            printf("%s  %d\n", nombre, V[3]);
+        else // registro
+            printf("%s  %s\n", nombre, registro[V[1]][V[2]]);
+}
+
+void dis2(texto nombre, int V[], int REG[], TRTDS TDS[], texto registro[16][4])
+{
+    if(V[0] == 0)
+        if(V[4] == 0) //memoria a memoria
+            printf("%s  [%d], [%d] \n", nombre, V[1]-baseds(TDS,REG), V[5]-baseds(TDS,REG));
+        else
+            if(V[4] == 1) // inmediato a memoria
+                printf("%s  [%d], %d \n", nombre, V[1]-baseds(TDS,REG), V[7]);
+            else // registro a memoria
+                printf("%s  [%d], %s \n", nombre, V[1]-baseds(TDS,REG), registro[V[5]][V[6]]);
+    else
+        if(V[4] == 0) //memoria a registro
+            printf("%s  %s, [%d] \n", nombre, registro[V[1]][V[2]], V[5]-baseds(TDS,REG));
+        else
+            if(V[4] == 1) // inmediato a registro
+                printf("%s  %s, %d \n", nombre, registro[V[1]][V[2]], V[7]);
+            else // registro a registro
+                printf("%s  %s, %s \n", nombre, registro[V[1]][V[2]], registro[V[5]][V[6]]);
+}
+
+void cargaNombres(texto funciones[])
+{
+    strcpy(funciones[0], "MOV ");
+    strcpy(funciones[1], "ADD ");
+    strcpy(funciones[2], "SUB ");
+    strcpy(funciones[3], "SWAP");
+    strcpy(funciones[4], "MUL ");
+    strcpy(funciones[5], "DIV ");
+    strcpy(funciones[6], "CMP ");
+    strcpy(funciones[7], "SHL ");
+    strcpy(funciones[8], "SHR ");
+    strcpy(funciones[9], "AND ");
+    strcpy(funciones[10], "OR  ");
+    strcpy(funciones[11], "XOR ");
+    strcpy(funciones[48], "SYS ");
+    strcpy(funciones[49], "JMP ");
+    strcpy(funciones[50], "JZ  ");
+    strcpy(funciones[51], "JP  ");
+    strcpy(funciones[52], "JN  ");
+    strcpy(funciones[53], "JNZ ");
+    strcpy(funciones[54], "JNP ");
+    strcpy(funciones[55], "JNN ");
+    strcpy(funciones[56], "LDL ");
+    strcpy(funciones[57], "LDH ");
+    strcpy(funciones[58], "RND ");
+    strcpy(funciones[59], "NOT ");
+    strcpy(funciones[240], "STOP");
+}
+
+void disassembler(int codop, int V[], int REG[], TRTDS TDS[], texto registro[16][4])
+{
+    texto Nombres[256];
+    cargaNombres(Nombres);
+    if (V[0] == 3)
+        dis0(Nombres[codop]);
+    else
+        if (V[4] == 3)
+            dis1(Nombres[codop], V, REG, TDS, registro);
+        else
+            dis2(Nombres[codop], V, REG, TDS, registro);
+}
+
+void procesoDatos(char MEM[], int REG[], TRTDS TDS[], t_func funciones[], int ejecutar, char infoVM[])
 {
     char inst;
     int codop = 0, V[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
     texto registro[16][4];
     cargaMatriz (registro);
     if(ejecutar)
-        printf("%s TAM: %d\n\n",infoVM,baseds(TDS,REG));
-    while(ejecutar == 1 && codop != 240)
+        printf("\n%s TAM: %d\n\n", infoVM, baseds(TDS,REG));
+    while(ejecutar == 1 && REG[5] < baseds(TDS, REG))
     {
-        if(REG[5] > baseds(TDS, REG))
-        {
-            printf("Fallo de segmento\n");
-            exit(1);
-        }
         inst = MEM[REG[5]++];
         V[9] = inst&0xFF;
         codigosDis(V[9],MEM,REG,TDS);
@@ -1502,60 +1201,26 @@ void procesoDatos(char MEM[], int REG[], TRTDS TDS[], t_func funciones[], t_dis 
 
         if( (codop < 0) || (codop > 12 && codop < 48) || (codop > 59 && codop < 240) || (codop > 240))
         {
-            printf("Instruccion invalida");
+            printf("\nInstruccion invalida\n");
             exit(1);
         }
-        disassembler[codop](V, REG, TDS, registro);
+        disassembler(codop, V, REG, TDS, registro);
     }
-
+    printf("\n");
     iniciaRegistros(REG);
     codop = 0;
-    while(codop != 240)
+    while(codop != 240 && REG[5] < baseds(TDS, REG))
     {
-        if(REG[5] > baseds(TDS, REG))
-        {
-            printf("Fallo de segmento\n");
-            exit(1);
-        }
         inst = MEM[REG[5]++];
         V[9] = inst&0xFF;
         codigos(V[9], &codop, V, MEM, REG, TDS);
         if( (codop < 0) || (codop > 12 && codop < 48) || (codop > 59 && codop < 240) || (codop > 240))
         {
-            printf("Instruccion invalida");
+            printf("\nInstruccion invalida\n");
             exit(1);
         }
         funciones[codop](V, MEM, REG, TDS);
     }
-}
-
-void cargaFuncionesDis (t_dis funciones[])
-{
-    funciones[0] = disMOV;
-    funciones[1] = disADD;
-    funciones[2] = disSUB;
-    funciones[3] = disSWAP;
-    funciones[4] = disMUL;
-    funciones[5] = disDIV;
-    funciones[6] = disCMP;
-    funciones[7] = disSHL;
-    funciones[8] = disSHR;
-    funciones[9] = disAND;
-    funciones[10] = disOR;
-    funciones[11] = disXOR;
-    funciones[48] = disSYS;
-    funciones[49] = disJMP;
-    funciones[50] = disJZ;
-    funciones[51] = disJP;
-    funciones[52] = disJN;
-    funciones[53] = disJNZ;
-    funciones[54] = disJNP;
-    funciones[55] = disJNN;
-    funciones[56] = disLDL;
-    funciones[57] = disLDH;
-    funciones[58] = disRND;
-    funciones[59] = disNOT;
-    funciones[240] = disSTOP;
 }
 
 void cargaFunciones(t_func funciones[])
@@ -1591,11 +1256,8 @@ int main(int argc, char *argv[])
 {
     int TAM, RAM = 16384, REG[16];
     //( 0 = CS / 1 = DS / 5 = IP / 8 = CC / 9 = AC )
-    char MEM[RAM], DirArchivo[120],infoMV[15];
+    char MEM[RAM], DirArchivo[120], infoMV[15];
     TRTDS TDS[8];
-
-    t_dis disassembler[256];
-    cargaFuncionesDis(disassembler);
 
     //declaracion de funciones
     t_func funciones[256];
@@ -1609,9 +1271,9 @@ int main(int argc, char *argv[])
     iniciaRegistros(REG);
 
     if( (argc == 3) && strcmp(argv[2], "-d") == 0 )
-        procesoDatos(MEM, REG, TDS, funciones, disassembler , 1,infoMV);
+        procesoDatos(MEM, REG, TDS, funciones, 1, infoMV);
     else
-        procesoDatos(MEM, REG, TDS, funciones, disassembler, 0, infoMV);
+        procesoDatos(MEM, REG, TDS, funciones, 0, infoMV);
 
     return 0;
 }
