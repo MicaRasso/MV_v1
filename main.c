@@ -5,7 +5,7 @@
 
 typedef struct
 {
-    char op, registro, segmento;
+    char op, registro, segmento, celda;
     short int posmem, offset;
     int valor, inst;
 } datos;
@@ -25,6 +25,9 @@ void cargaMatriz(texto registro[16][4])
 {
     strcpy(registro[0][0],"cs");
     strcpy(registro[1][0],"ds");
+    strcpy(registro[2][0],"ks");
+    strcpy(registro[3][0],"es");
+    strcpy(registro[4][0],"ss");
     strcpy(registro[5][0],"ip");
     strcpy(registro[8][0],"cc");
     strcpy(registro[9][0],"ac");
@@ -80,43 +83,68 @@ void cargaNombres(texto funciones[])
     strcpy(funciones[57], "LDH ");
     strcpy(funciones[58], "RND ");
     strcpy(funciones[59], "NOT ");
+    strcpy(funciones[60], "PUSH");
+    strcpy(funciones[61], "POP ");
+    strcpy(funciones[62], "CALL");
     strcpy(funciones[240], "STOP");
+    strcpy(funciones[241], "RET ");
 }
 
-void iniciaTablaDeSegmentos(TRTDS TDS[], int RAM, int TAM)
+void iniciaRegistros(int REG[], int indice[], int RAM)
 {
+    REG[0] = indice[0];       //CS
+    REG[1] = indice[2];       //DS
+    REG[2] = indice[1];       //KS
+    REG[3] = indice[3];       //ES
+    REG[4] = indice[4];       //SS
+    REG[5] = 0;               //IP
+    if(REG[4] == -1)          //SP
+        REG[6] = -1;
+    else
+        REG[6] = RAM + 1;
+    REG[7] = 0;               //BP
+    REG[8] = 0;               //CC
+    REG[9] = 0;               //AC
+    REG[10] = 0;              //A
+    REG[11] = 0;              //B
+    REG[12] = 0;              //C
+    REG[13] = 0;              //D
+    REG[14] = 0;              //E
+    REG[15] = 0;              //F
+}
+
+void iniciaTablaDeSegmentos(TRTDS TDS[], int REG[], int RAM, int indice[])
+{
+    int i, j = 0;
+
     TDS[0].base = 0;
-    TDS[0].size = TAM;
-    TDS[1].base = TAM;
-    TDS[1].size = RAM - TAM;
-}
-
-void iniciaRegistros(int REG[])
-{
-    REG[0] = 0;        //CS
-    REG[1] = 0x10000;  //DS
-//  REG[2] = ;
-//  REG[3] = ;
-//  REG[4] = ;
-    REG[5] = 0;        //IP
-//  REG[6] = ;
-//  REG[7] = ;
-    REG[8] = 0;        //CC
-    REG[9] = 0;        //AC
-    REG[10] = 0;       //A
-    REG[11] = 0;       //B
-    REG[12] = 0;       //C
-    REG[13] = 0;       //D
-    REG[14] = 0;       //E
-    REG[15] = 0;       //F
+    TDS[0].size = indice[0];
+    indice[0] = 0;
+    for (i = 1 ; i < 5 ; i++)
+    {
+        if (indice[i] != 0)
+        {
+            TDS[j].base = TDS[j-1].base + TDS[j-1].size;
+            if(indice[i] > 0)
+                TDS[j].size = indice[i];
+            else
+                TDS[j].size = 1024;
+            indice[i] = j++;
+            indice[i] = indice[i]<<16;
+        }
+        else
+            indice[i] = -1;
+    }
+    //VER QUE HACER CON LA RAM :)
+    iniciaRegistros (REG, indice, RAM);
 }
 
 short int base(int seg, TRTDS TDS[], int REG[])
 {
-    return TDS[(REG[1])>>16].base;
+    return TDS[(REG[seg])>>16].base;
 }
 
-short int corrimiento (int aux, int izq, int der)
+int corrimiento (int aux, int izq, int der)
 {
     aux = (aux<<8)>>8;
     return (aux<<izq)>>der;
@@ -178,6 +206,8 @@ void leedemem(datos V[], int k, char MEM[], int REG[], TRTDS TDS[])
 {
     int i, j = 3, aux2 = 0, aux = 0, ds = REG[1];
 
+
+
     for(i = 0 ; i < 4 ; i++)
     {
         if(V[k].posmem+V[k].offset+j < base(ds,TDS,REG))
@@ -203,6 +233,8 @@ void leemem(datos V[], int i, char MEM[], int REG[], TRTDS TDS[])
     short int offset = 0;
 
     lee1byte(&segreg, MEM, REG, TDS);
+    V[i].celda = segreg>>6;
+    V[i].celda &= 0x3;
     V[i].segmento = segreg>>4; // siempre = 0;
     V[i].registro = segreg&0xF;
 
@@ -250,12 +282,12 @@ void leereg(datos V[], int i, char MEM[], int REG[], TRTDS TDS[])
     }
 }
 
-void lectura(char MEM[], int *TAM, char DirArchivo[], char infoMV[])
+void lectura(char MEM[], int REG[], int TDS[], int RAM, char DirArchivo[], char infoMV[])
 {
     FILE *arch;
-    char encabezado[6], version, c;
+    char encabezado[6], version, c, str[6];
     arch = fopen(DirArchivo, "rb");
-    int i, aux = 0;
+    int i, aux = 0, TAMCS = 0, TAMKS = 0, TAMDS = 0, TAMES = 0, TAMSS = 0, indice[5];
 
     if(arch != NULL)
     {
@@ -264,20 +296,68 @@ void lectura(char MEM[], int *TAM, char DirArchivo[], char infoMV[])
 
         fread(&version, sizeof(char), 1, arch);
 
-        *TAM = 0;
-
+//lectura de tamaño CS
         fread(&c, sizeof(char), 1, arch);
         aux = c;
         mascaras(&aux, 0);
         aux = (aux<<8);
-        *TAM |= aux;
+        TAMCS |= aux;
 
         fread(&c, sizeof(char), 1, arch);
         aux = c;
         mascaras(&aux, 0);
-        *TAM |= aux;
+        TAMCS |= aux;
 
-        for (i=0 ; i < *TAM ; i++)
+//lectura de tamaño KS
+        fread(&c, sizeof(char), 1, arch);
+        aux = c;
+        mascaras(&aux, 0);
+        aux = (aux<<8);
+        TAMKS |= aux;
+
+        fread(&c, sizeof(char), 1, arch);
+        aux = c;
+        mascaras(&aux, 0);
+        TAMKS |= aux;
+
+//lectura de tamaño DS
+        fread(&c, sizeof(char), 1, arch);
+        aux = c;
+        mascaras(&aux, 0);
+        aux = (aux<<8);
+        TAMDS |= aux;
+
+        fread(&c, sizeof(char), 1, arch);
+        aux = c;
+        mascaras(&aux, 0);
+        TAMDS |= aux;
+
+//lectura de tamaño ES
+        fread(&c, sizeof(char), 1, arch);
+        aux = c;
+        mascaras(&aux, 0);
+        aux = (aux<<8);
+        TAMES |= aux;
+
+        fread(&c, sizeof(char), 1, arch);
+        aux = c;
+        mascaras(&aux, 0);
+        TAMES |= aux;
+
+//lectura de tamaño SS
+        fread(&c, sizeof(char), 1, arch);
+        aux = c;
+        mascaras(&aux, 0);
+        aux = (aux<<8);
+        TAMSS |= aux;
+
+        fread(&c, sizeof(char), 1, arch);
+        aux = c;
+        mascaras(&aux, 0);
+        TAMSS |= aux;
+
+//lectura y carga en memoria
+        for (i=0 ; i < TAMCS ; i++)
         {
             fread(&c,sizeof(char),1,arch);
             MEM[i] = c;
@@ -288,7 +368,30 @@ void lectura(char MEM[], int *TAM, char DirArchivo[], char infoMV[])
         strcat(infoMV," VER: ");
         version += 48;
         infoMV[11] = version;
-        infoMV[12] = '\0';
+        strcat(infoMV," TAMCS: ");
+        sprintf(str, "%d", TAMCS);
+        strcat(infoMV, str);
+        strcat(infoMV," TAMKS: ");
+        sprintf(str, "%d", TAMKS);
+        strcat(infoMV, str);
+        strcat(infoMV," TAMDS: ");
+        sprintf(str, "%d", TAMDS);
+        strcat(infoMV, str);
+        strcat(infoMV," TAMES: ");
+        sprintf(str, "%d", TAMES);
+        strcat(infoMV, str);
+        strcat(infoMV," TAMSS: ");
+        sprintf(str, "%d", TAMSS);
+        strcat(infoMV, str);
+
+        indice[0]= TAMCS;
+        indice[1]= TAMKS;
+        indice[2]= TAMDS;
+        indice[3]= TAMES;
+        indice[4]= TAMSS;
+
+        iniciaTablaDeSegmentos(TDS, REG, RAM, indice);
+
     }
     else
         printf("No se pudo abrir el archivo\n");
@@ -304,7 +407,7 @@ void codigosDis(int inst, char MEM[], int REG[], TRTDS TDS[])
     op2 = (~op2)&0x03;
     IP = REG[5]-1;
     i = 0;
-    printf("[%04d] ",IP);
+    printf("[%04X] ",IP);
     while(i < op1)
     {
         printf("%02X ",(MEM[IP])&0xFF);
@@ -1079,7 +1182,7 @@ void SYS(datos V[], char MEM[], int REG[], TRTDS TDS[])
                         mascaras(&aux2, 0);
                         aux |= aux2<<8*(ch-j-1);
                     }
-                    printf("[%04d]: %d\n", pos-base(ds, TDS, REG), aux);
+                    printf("[%04X]: %d\n", pos-base(ds, TDS, REG), aux);
                     pos += ch;
                     aux = 0;
                 }
@@ -1096,7 +1199,7 @@ void SYS(datos V[], char MEM[], int REG[], TRTDS TDS[])
                         mascaras(&aux2, 0);
                         aux |= aux2<<8*(ch-j-1);
                     }
-                    printf("[%04d]: %c\n", pos-base(ds, TDS, REG), aux);
+                    printf("[%04X]: %c\n", pos-base(ds, TDS, REG), aux);
                     pos += ch;
                     aux = 0;
                 }
@@ -1113,7 +1216,7 @@ void SYS(datos V[], char MEM[], int REG[], TRTDS TDS[])
                         mascaras(&aux2, 0);
                         aux |= aux2<<8*(ch-j-1);
                     }
-                    printf("[%04d]: %011o\n", pos-base(ds, TDS, REG), aux);
+                    printf("[%04X]: %011o\n", pos-base(ds, TDS, REG), aux);
                     pos += ch;
                     aux = 0;
                 }
@@ -1130,7 +1233,7 @@ void SYS(datos V[], char MEM[], int REG[], TRTDS TDS[])
                         mascaras(&aux2, 0);
                         aux |= aux2<<8*(ch-j-1);
                     }
-                    printf("[%04d]: %08X\n", pos-base(ds, TDS, REG), aux);
+                    printf("[%04X]: %08X\n", pos-base(ds, TDS, REG), aux);
                     pos += ch;
                     aux = 0;
                 }
@@ -1269,10 +1372,18 @@ void NOT(datos V[], char MEM[], int REG[], TRTDS TDS[])
     setCC(V, MEM, REG, TDS);
 }
 
+void PUSH(datos V[], char MEM[], int REG[], TRTDS TDS[]){}
+
+void POP(datos V[], char MEM[], int REG[], TRTDS TDS[]){}
+
+void CALL(datos V[], char MEM[], int REG[], TRTDS TDS[]){}
+
 void STOP(datos V[], char MEM[], int REG[], TRTDS TDS[])
 {
     printf("\n");
 }
+
+void RET(datos V[], char MEM[], int REG[], TRTDS TDS[]){}
 
 void cargaFunciones(t_func funciones[])
 {
@@ -1300,7 +1411,11 @@ void cargaFunciones(t_func funciones[])
     funciones[57] = LDH;
     funciones[58] = RND;
     funciones[59] = NOT;
+    funciones[60] = PUSH;
+    funciones[61] = POP;
+    funciones[62] = CALL;
     funciones[240] = STOP;
+    funciones[241] = RET;
 }
 
 void dis0(texto nombre)
@@ -1403,23 +1518,34 @@ void procesoDatos(char MEM[], int REG[], TRTDS TDS[], t_func funciones[], int ej
 
 int main(int argc, char *argv[])
 {
-    int TAM, RAM = 16384, REG[16];
-    char MEM[RAM], DirArchivo[120], infoMV[15];
+    int RAM = 16384, REG[16], dissa=0;
+    char DirArchivo[120], DirArchivoDebugger[120], infoMV[60], info[30];
     TRTDS TDS[8];
-
     t_func funciones[256];
-    cargaFunciones(funciones);
 
     strcpy(DirArchivo, argv[1]);
 
-    lectura(MEM, &TAM, DirArchivo,infoMV);
-    iniciaTablaDeSegmentos(TDS, RAM, TAM);
-    iniciaRegistros(REG);
+    for(int i = 2; i < argc ; i++)
+    {
+        strcpy(info,argv[i]);
+        if(info[0]=='m') //es el tamaño de la RAM
+        {
+        //funcion para convertir el string a int
+        memmove(info, info + 2, strlen(info)-1);
+        RAM = atoi(info);
+        }
+        else
+            if(strcmp(info,"-d")==0) // ejecuta o no el dissasembler
+                dissa = 1;
+            else//es el nombre del archivo
+                strcpy(DirArchivoDebugger, info);
+    }
+    char MEM[RAM];
 
-    if( (argc == 3) && strcmp(argv[2], "-d") == 0 )
-        procesoDatos(MEM, REG, TDS, funciones, 1, infoMV);
-    else
-        procesoDatos(MEM, REG, TDS, funciones, 0, infoMV);
+    cargaFunciones(funciones);
+
+    lectura(MEM, REG, TDS, RAM, DirArchivo, infoMV);
+    procesoDatos(MEM, REG, TDS, funciones, dissa, infoMV);
 
     return 0;
 }
